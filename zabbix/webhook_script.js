@@ -1,54 +1,53 @@
-// ════════════════════════════════════════════════════════════
-//  WhatZabbix — Media Type Webhook Script
-//  Author: Elizeu Soares de Oliveira (Software Engineer)
-//  Cole este script em: Administration > Media types > Webhook
-//  Script type: JavaScript
-// ════════════════════════════════════════════════════════════
+var CWebhook = function(value) {
+    try {
+        var p = JSON.parse(value);
 
-try {
-    var API_URL = params.api_url.replace(/\/+$/, '');
-    var API_KEY = params.api_key;
+        var API_URL = p.api_url.replace(/\/+$/, '');
+        var API_KEY = p.api_key;
 
-    // Monta o payload com todos os campos disponíveis
-    var payload = JSON.stringify({
-        to:                  params.to,
-        subject:             params.subject,
-        body:                params.body,
-        severity:            params.severity,
-        event_nseverity:     params.event_nseverity,
-        status:              params.status,
-        event_value:         params.event_value,
-        event_update_status: params.event_update_status,
-        event_id:            params.event_id,
-        trigger_name:        params.trigger_name,
-        host:                params.host,
-        event_date:          params.event_date,
-        event_time:          params.event_time,
-        zabbix_url:          params.zabbix_url,
-        is_group:            params.is_group === 'true'
-    });
+        var payload = JSON.stringify({
+            to:                  p.to,
+            subject:             p.subject,
+            body:                p.body,
+            severity:            p.severity,
+            event_nseverity:     p.event_nseverity,
+            status:              p.status,
+            event_value:         p.event_value,
+            event_update_status: p.event_update_status,
+            event_id:            p.event_id,
+            trigger_name:        p.trigger_name,
+            host:                p.host,
+            event_date:          p.event_date,
+            event_time:          p.event_time,
+            zabbix_url:          p.zabbix_url,
+            is_group:            p.is_group === 'true'
+        });
 
-    var req = new HttpRequest();
-    req.addHeader('Content-Type: application/json');
-    req.addHeader('X-API-Key: ' + API_KEY);
+        var req = new HttpRequest();
+        req.addHeader('Content-Type: application/json');
+        req.addHeader('X-API-Key: ' + API_KEY);
 
-    var resp = req.post(API_URL + '/api/v1/zabbix/alert', payload);
-    var code = req.getStatus();
+        var resp = req.post(API_URL + '/api/v1/zabbix/alert', payload);
+        var code = req.getStatus();
 
-    Zabbix.log(4, '[WhatZabbix] HTTP ' + code + ' → ' + resp);
+        Zabbix.log(4, '[WhatZabbix] HTTP ' + code + ' response: ' + resp);
 
-    if (code !== 200) {
-        throw 'HTTP ' + code + ': ' + resp;
+        if (code !== 200) {
+            throw 'HTTP ' + code + ': ' + resp;
+        }
+
+        var result = JSON.parse(resp);
+        if (!result.success) {
+            throw 'API error: ' + (result.error || resp);
+        }
+
+        return 'OK: message_id=' + result.message_id;
+
+    } catch (e) {
+        Zabbix.log(3, '[WhatZabbix] ERRO: ' + e);
+        throw 'WhatZabbix falhou: ' + e;
     }
+};
 
-    var result = JSON.parse(resp);
-    if (!result.success) {
-        throw 'API error: ' + (result.error || resp);
-    }
+return new CWebhook(value);
 
-    return 'OK: message_id=' + result.message_id;
-
-} catch (e) {
-    Zabbix.log(3, '[WhatZabbix] ERRO: ' + e);
-    throw 'WhatZabbix falhou: ' + e;
-}
