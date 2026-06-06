@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+
+# Env
+.env
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# WhatsApp session data (contém credenciais — nunca commitar)
+whatsapp/.wwebjs_auth/
+whatsapp/.wwebjs_cache/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

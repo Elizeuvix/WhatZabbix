@@ -1,0 +1,16 @@
+# Garante line endings corretos por tipo de arquivo
+* text=auto
+
+# Shell scripts — sempre LF (Linux)
+*.sh    text eol=lf
+*.py    text eol=lf
+*.js    text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+
+# Binários
+*.png   binary
+*.jpg   binary
+*.ico   binary

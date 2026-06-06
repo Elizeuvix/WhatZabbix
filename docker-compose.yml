@@ -1,0 +1,63 @@
+services:
+
+  # ── Serviço WhatsApp interno (Node.js + whatsapp-web.js) ──────────────────
+  whatsapp:
+    build:
+      context: ./whatsapp
+      dockerfile: Dockerfile
+    container_name: wa-service
+    restart: unless-stopped
+    volumes:
+      - wa_auth:/app/.wwebjs_auth       # Persiste a sessão WhatsApp
+    environment:
+      WA_PORT: "3000"
+    networks:
+      - internal                         # Apenas rede interna — nunca exposto externamente
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ── API principal (Python FastAPI) ────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wa-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"           # Escuta apenas localhost — Nginx faz o proxy
+    env_file:
+      - .env
+    environment:
+      WHATSAPP_SERVICE_URL: "http://whatsapp:3000"
+    depends_on:
+      whatsapp:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  wa_auth:                               # Volume nomeado para persistir sessão WhatsApp
+
+networks:
+  internal:
+    driver: bridge
