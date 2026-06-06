@@ -12,67 +12,63 @@ router = APIRouter(prefix="/zabbix", tags=["Zabbix"])
 
 # ─── Formatting helpers ───────────────────────────────────────────────────────
 
-_SEVERITY_ICON: dict[str, str] = {
-    "not classified": "⚪",
-    "information":    "🔵",
-    "warning":        "🟡",
-    "average":        "🟠",
-    "high":           "🔴",
-    "disaster":       "🚨",
-}
-
-_STATUS_ICON: dict[str, str] = {
-    "problem":      "🚨",
-    "resolved":     "✅",
-    "acknowledged": "👁️",
+# Ícones por severidade numérica do Zabbix (EVENT.NSEVERITY)
+_NSEVERITY: dict[str, str] = {
+    "5": "💀 Disaster",
+    "4": "🔴 High",
+    "3": "🟠 Average",
+    "2": "🟡 Warning",
+    "1": "🔵 Information",
+    "0": "⚪ Not classified",
 }
 
 _DIVIDER = "━━━━━━━━━━━━━━━━━━━━"
 
 
 def _format_message(alert: ZabbixAlertRequest) -> str:
-    severity_key = (alert.severity or "").strip().lower()
-    status_key   = (alert.status or "").strip().lower()
+    is_recovery = (alert.event_value or "").strip() == "0"
+    is_update   = (alert.event_update_status or "").strip() == "1"
 
-    sev_icon    = _SEVERITY_ICON.get(severity_key, "⚠️")
-    status_icon = _STATUS_ICON.get(status_key, "⚠️")
-
-    lines: list[str] = []
+    sev_label = _NSEVERITY.get(
+        (alert.event_nseverity or "").strip(),
+        f"⚠️ {alert.severity}" if alert.severity else "⚠️ Unknown",
+    )
 
     # ── Header ────────────────────────────────────────────────────────────────
-    if status_key == "resolved":
-        lines.append(f"✅ *RESOLVIDO* {sev_icon}")
-    elif status_key == "problem":
-        sev_label = (alert.severity or "ALERTA").upper()
-        lines.append(f"🚨 *PROBLEMA — {sev_label}* {sev_icon}")
+    if is_recovery:
+        header = f"🟢 *RESOLVIDO*"
+        title  = "PROBLEMA RESOLVIDO"
+    elif is_update:
+        header = f"🔄 *ATUALIZAÇÃO* — {sev_label}"
+        title  = "ATUALIZAÇÃO DE PROBLEMA"
     else:
-        lines.append(f"{status_icon} *{alert.subject}*")
+        header = f"{sev_label} — *PROBLEMA*"
+        title  = "ALERTA ZABBIX"
 
-    lines.append(_DIVIDER)
+    lines: list[str] = [header, _DIVIDER]
 
     # ── Details ───────────────────────────────────────────────────────────────
     if alert.trigger_name:
-        lines.append(f"📋 *Trigger:* {alert.trigger_name}")
+        lines.append(f"📌 *Problema:* {alert.trigger_name}")
 
     if alert.host:
-        lines.append(f"🖥️ *Host:* {alert.host}")
+        lines.append(f"🏷 *Host:* {alert.host}")
+
+    lines.append(f"⚠️ *Severidade:* {'RESOLVIDO' if is_recovery else sev_label}")
 
     if alert.event_date and alert.event_time:
-        lines.append(f"🕐 *Horário:* {alert.event_date} {alert.event_time}")
+        lines.append(f"🕒 *Horário:* {alert.event_date} {alert.event_time}")
     else:
-        lines.append(f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+        lines.append(f"🕒 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
-    lines.append(_DIVIDER)
-
-    # ── Body ──────────────────────────────────────────────────────────────────
-    if alert.body:
-        lines.append("ℹ️ *Detalhes:*")
-        lines.append(alert.body)
-        lines.append(_DIVIDER)
-
-    # ── Footer ────────────────────────────────────────────────────────────────
     if alert.event_id:
-        lines.append(f"🆔 Event ID: {alert.event_id}")
+        lines.append(f"🆔 *Event ID:* {alert.event_id}")
+
+    # ── Link Zabbix ───────────────────────────────────────────────────────────
+    if alert.zabbix_url and alert.event_id:
+        base = alert.zabbix_url.rstrip("/")
+        link = f"{base}/zabbix.php?action=problem.view&eventid={alert.event_id}"
+        lines.append(f"\n🔗 *Abrir no Zabbix:*\n{link}")
 
     return "\n".join(lines)
 
@@ -93,16 +89,20 @@ async def receive_zabbix_alert(
 
     Parâmetros sugeridos no Zabbix:
     ```
-    to           → {ALERT.SENDTO}
-    subject      → {ALERT.SUBJECT}
-    body         → {ALERT.MESSAGE}
-    severity     → {EVENT.SEVERITY}
-    status       → {EVENT.STATUS}
-    event_id     → {EVENT.ID}
-    trigger_name → {TRIGGER.NAME}
-    host         → {HOST.NAME}
-    event_date   → {EVENT.DATE}
-    event_time   → {EVENT.TIME}
+    to                  → {ALERT.SENDTO}
+    subject             → {ALERT.SUBJECT}
+    body                → {ALERT.MESSAGE}
+    severity            → {EVENT.SEVERITY}
+    event_nseverity     → {EVENT.NSEVERITY}
+    status              → {EVENT.STATUS}
+    event_value         → {EVENT.VALUE}
+    event_update_status → {EVENT.UPDATE.STATUS}
+    event_id            → {EVENT.ID}
+    trigger_name        → {TRIGGER.NAME}
+    host                → {HOST.NAME}
+    event_date          → {EVENT.DATE}
+    event_time          → {EVENT.TIME}
+    zabbix_url          → http://seu-zabbix.local/
     ```
     """
     message = _format_message(alert)

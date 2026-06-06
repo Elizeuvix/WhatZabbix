@@ -1,5 +1,6 @@
 // ════════════════════════════════════════════════════════════
 //  WhatZabbix — Media Type Webhook Script
+//  Author: Elizeu Soares de Oliveira (Software Engineer)
 //  Cole este script em: Administration > Media types > Webhook
 //  Script type: JavaScript
 // ════════════════════════════════════════════════════════════
@@ -10,17 +11,21 @@ try {
 
     // Monta o payload com todos os campos disponíveis
     var payload = JSON.stringify({
-        to:           params.to,
-        subject:      params.subject,
-        body:         params.body,
-        severity:     params.severity,
-        status:       params.status,
-        event_id:     params.event_id,
-        trigger_name: params.trigger_name,
-        host:         params.host,
-        event_date:   params.event_date,
-        event_time:   params.event_time,
-        is_group:     params.is_group === 'true'
+        to:                  params.to,
+        subject:             params.subject,
+        body:                params.body,
+        severity:            params.severity,
+        event_nseverity:     params.event_nseverity,
+        status:              params.status,
+        event_value:         params.event_value,
+        event_update_status: params.event_update_status,
+        event_id:            params.event_id,
+        trigger_name:        params.trigger_name,
+        host:                params.host,
+        event_date:          params.event_date,
+        event_time:          params.event_time,
+        zabbix_url:          params.zabbix_url,
+        is_group:            params.is_group === 'true'
     });
 
     var req = new HttpRequest();
