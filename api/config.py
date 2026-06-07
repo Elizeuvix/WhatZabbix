@@ -15,9 +15,20 @@ class Settings(BaseSettings):
     # Comma-separated origins. Use * for all (not recommended in production)
     allowed_origins: str = "*"
 
-    # ── WhatsApp internal service ─────────────────────────────────────────────
+    # ── WhatsApp provider ─────────────────────────────────────────────────────
+    # internal -> local Node service (legacy)
+    # meta     -> official WhatsApp Cloud API
+    whatsapp_provider: str = "internal"
+
+    # ── WhatsApp internal service (legacy) ───────────────────────────────────
     whatsapp_service_url: str = "http://localhost:3000"
     whatsapp_service_timeout: int = 30  # seconds
+
+    # ── WhatsApp Cloud API (official) ────────────────────────────────────────
+    meta_api_version: str = "v20.0"
+    meta_graph_base_url: str = "https://graph.facebook.com"
+    meta_access_token: str = ""
+    meta_phone_number_id: str = ""
 
     model_config = {
         "env_file": ".env",

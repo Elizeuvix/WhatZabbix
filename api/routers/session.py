@@ -5,7 +5,7 @@ import httpx
 import logging
 
 from api.auth import require_api_key
-from api.services.whatsapp_client import whatsapp_client
+from api.services.whatsapp_client import whatsapp_client, WhatsAppServiceError
 
 logger = logging.getLogger("api.session")
 router = APIRouter(prefix="/session", tags=["Sessão"])
@@ -20,6 +20,37 @@ async def get_status(_: str = Depends(require_api_key)):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Serviço WhatsApp indisponível",
+        )
+    except WhatsAppServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+
+
+@router.post("/pair-code", summary="Gerar código de pareamento (sem QR)")
+async def get_pair_code(number: str | None = None, _: str = Depends(require_api_key)):
+    """
+    Gera código de pareamento para conectar sem QR.
+    Envie o número com DDI (ex: 5511999999999).
+    """
+    try:
+        return await whatsapp_client.get_pairing_code(number)
+    except httpx.HTTPStatusError as exc:
+        try:
+            detail = exc.response.json().get("error", str(exc))
+        except Exception:
+            detail = str(exc)
+        raise HTTPException(status_code=exc.response.status_code, detail=detail)
+    except httpx.RequestError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Serviço WhatsApp indisponível",
+        )
+    except WhatsAppServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
         )
 
 
@@ -42,6 +73,11 @@ async def get_qr(_: str = Depends(require_api_key)):
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Serviço WhatsApp indisponível",
         )
+    except WhatsAppServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
 
 
 @router.get(
@@ -58,6 +94,11 @@ async def get_qr_image(_: str = Depends(require_api_key)):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Serviço WhatsApp indisponível",
+        )
+    except WhatsAppServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
         )
 
     if "qr" not in result:

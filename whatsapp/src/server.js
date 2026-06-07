@@ -1,136 +1,201 @@
 'use strict';
 
 const express = require('express');
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode');
+const path = require('path');
+const pino = require('pino');
+const {
+    default: makeWASocket,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    useMultiFileAuthState,
+} = require('@whiskeysockets/baileys');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
 const PORT = parseInt(process.env.WA_PORT || '3000', 10);
-const HOST = '127.0.0.1'; // Never expose externally — only the Python API talks to this
+const HOST = process.env.WA_HOST || '0.0.0.0';
+const AUTH_PATH = process.env.WA_AUTH_PATH || './.wa_auth';
 
-// ─── State ───────────────────────────────────────────────────────────────────
+// Optional default number (country code + number), ex: 5511999999999
+const DEFAULT_PAIRING_NUMBER = (process.env.WA_PAIRING_NUMBER || '').replace(/\D/g, '');
 
-let client = null;
-let qrCodeDataURL = null;
-
-/**
- * @type {'initializing'|'qr_ready'|'authenticated'|'ready'|'disconnected'}
- */
+/** @type {'initializing'|'pairing_required'|'pairing_ready'|'authenticated'|'ready'|'disconnected'} */
 let clientStatus = 'initializing';
+let latestPairingCode = null;
+let sock = null;
+let reconnectTimer = null;
+let startPromise = null;
 
-// ─── Client initialization ───────────────────────────────────────────────────
-
-function initializeClient() {
-    clientStatus = 'initializing';
-    qrCodeDataURL = null;
-
-    client = new Client({
-        authStrategy: new LocalAuth({
-            dataPath: process.env.WA_AUTH_PATH || './.wwebjs_auth',
-        }),
-        puppeteer: {
-            headless: true,
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--single-process',
-                '--disable-gpu',
-            ],
-        },
-    });
-
-    client.on('qr', async (qr) => {
-        console.log('[WhatsApp] QR Code received — scan it with your phone');
-        clientStatus = 'qr_ready';
-        qrCodeDataURL = await qrcode.toDataURL(qr);
-    });
-
-    client.on('authenticated', () => {
-        console.log('[WhatsApp] Authenticated successfully');
-        clientStatus = 'authenticated';
-        qrCodeDataURL = null;
-    });
-
-    client.on('auth_failure', (msg) => {
-        console.error('[WhatsApp] Authentication failure:', msg);
-        clientStatus = 'disconnected';
-    });
-
-    client.on('ready', () => {
-        console.log('[WhatsApp] Client ready — connected to WhatsApp');
-        clientStatus = 'ready';
-    });
-
-    client.on('disconnected', (reason) => {
-        console.warn('[WhatsApp] Disconnected:', reason);
-        clientStatus = 'disconnected';
-        // Reinitialize after 5 s
-        setTimeout(initializeClient, 5000);
-    });
-
-    client.initialize().catch((err) => {
-        console.error('[WhatsApp] Initialization error:', err.message);
-        clientStatus = 'disconnected';
-        setTimeout(initializeClient, 10000);
-    });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
+function scheduleReconnect(delayMs = 5000) {
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        startClient().catch((err) => {
+            logger.error({ err }, '[WhatsApp] Failed to reconnect');
+            scheduleReconnect(10000);
+        });
+    }, delayMs);
 }
 
-initializeClient();
+function normalizePhone(number) {
+    return (number || '').replace(/\D/g, '');
+}
 
-// ─── Middleware ───────────────────────────────────────────────────────────────
+function toUserJid(number) {
+    return `${normalizePhone(number)}@s.whatsapp.net`;
+}
+
+async function requestPairingCode(number) {
+    const normalized = normalizePhone(number || DEFAULT_PAIRING_NUMBER);
+    if (!normalized) {
+        throw new Error('Pairing number is required (DDI + numero)');
+    }
+
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+        if (!sock || clientStatus === 'pairing_required' || sock.ws?.readyState === 3) {
+            await startClient();
+        }
+
+        try {
+            const code = await sock.requestPairingCode(normalized);
+            latestPairingCode = code;
+            clientStatus = 'pairing_ready';
+            logger.info({ number: normalized }, '[WhatsApp] Pairing code generated');
+            return code;
+        } catch (err) {
+            lastErr = err;
+            const msg = String(err?.message || err || '');
+            if (!msg.includes('Connection Closed') || attempt === 2) {
+                throw err;
+            }
+            logger.warn('[WhatsApp] Pairing attempt failed with closed connection, retrying once');
+            sock = null;
+        }
+    }
+
+    throw lastErr || new Error('Unable to generate pairing code');
+}
+
+async function startClient() {
+    if (startPromise) return startPromise;
+
+    startPromise = (async () => {
+    clientStatus = 'initializing';
+
+    const authDir = path.resolve(AUTH_PATH);
+    const { state, saveCreds } = await useMultiFileAuthState(authDir);
+    const { version } = await fetchLatestBaileysVersion();
+
+    sock = makeWASocket({
+        version,
+        auth: state,
+        logger: pino({ level: 'silent' }),
+        markOnlineOnConnect: false,
+        browser: ['WhatZabbix', 'Chrome', '1.0.0'],
+        syncFullHistory: false,
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    if (!state.creds.registered) {
+        clientStatus = 'pairing_required';
+        if (DEFAULT_PAIRING_NUMBER) {
+            setTimeout(async () => {
+                try {
+                    await requestPairingCode(DEFAULT_PAIRING_NUMBER);
+                } catch (err) {
+                    logger.error({ err }, '[WhatsApp] Failed to auto-generate pairing code');
+                }
+            }, 2000);
+        }
+    }
+
+        sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
+            if (connection === 'open') {
+                clientStatus = 'ready';
+                latestPairingCode = null;
+                logger.info('[WhatsApp] Client ready - connected');
+                return;
+            }
+
+            if (connection === 'close') {
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
+
+                if (statusCode === DisconnectReason.loggedOut) {
+                    clientStatus = 'pairing_required';
+                    latestPairingCode = null;
+                    sock = null;
+                    logger.warn('[WhatsApp] Logged out, pairing required');
+                } else {
+                    clientStatus = 'disconnected';
+                    logger.warn({ statusCode }, '[WhatsApp] Connection closed, scheduling reconnect');
+                    // Keep socket lifecycle alive for transient disconnects.
+                    scheduleReconnect(2500);
+                }
+            }
+        });
+    })();
+
+    try {
+        await startPromise;
+    } finally {
+        startPromise = null;
+    }
+}
+
+startClient().catch((err) => {
+    logger.error({ err }, '[WhatsApp] Startup failure');
+    clientStatus = 'disconnected';
+    scheduleReconnect(10000);
+});
 
 app.use((req, _res, next) => {
-    console.log(`[HTTP] ${req.method} ${req.path}`);
+    logger.info({ method: req.method, path: req.path }, '[HTTP] request');
     next();
 });
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * Normalize a phone number to WhatsApp chat ID format.
- * Accepts: 5511999999999, +55 (11) 99999-9999, etc.
- */
-function toChatId(number) {
-    const digits = number.replace(/\D/g, '');
-    return `${digits}@c.us`;
-}
-
 function assertReady(res) {
-    if (clientStatus !== 'ready') {
+    if (!sock || clientStatus !== 'ready') {
         res.status(503).json({
             error: 'WhatsApp client not ready',
             status: clientStatus,
+            pairingCode: latestPairingCode,
         });
         return false;
     }
     return true;
 }
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
-
 app.get('/health', (_req, res) => {
     res.json({ status: 'ok', whatsapp: clientStatus });
 });
 
 app.get('/status', (_req, res) => {
-    res.json({ status: clientStatus });
+    res.json({
+        status: clientStatus,
+        pairingCode: latestPairingCode,
+    });
 });
 
 app.get('/qr', (_req, res) => {
-    if (clientStatus === 'qr_ready' && qrCodeDataURL) {
-        return res.json({ qr: qrCodeDataURL, status: clientStatus });
+    // Backward-compatible route expected by API layer.
+    res.status(404).json({
+        message: 'QR flow disabled. Use pairing code endpoint instead.',
+        status: clientStatus,
+    });
+});
+
+app.post('/pair-code', async (req, res) => {
+    try {
+        const number = req.body?.number || req.query?.number || DEFAULT_PAIRING_NUMBER;
+        const code = await requestPairingCode(number);
+        res.json({ status: clientStatus, pairingCode: code });
+    } catch (err) {
+        res.status(400).json({ error: err.message || 'Unable to generate pairing code' });
     }
-    if (clientStatus === 'ready' || clientStatus === 'authenticated') {
-        return res.json({ message: 'Already authenticated', status: clientStatus });
-    }
-    return res.status(202).json({ message: 'QR not ready yet', status: clientStatus });
 });
 
 app.post('/send', async (req, res) => {
@@ -142,12 +207,11 @@ app.post('/send', async (req, res) => {
     if (!assertReady(res)) return;
 
     try {
-        const chatId = toChatId(number);
-        const sent = await client.sendMessage(chatId, message);
-        res.json({ success: true, messageId: sent.id._serialized });
+        const result = await sock.sendMessage(toUserJid(number), { text: String(message) });
+        res.json({ success: true, messageId: result?.key?.id });
     } catch (err) {
-        console.error('[send] Error:', err.message);
-        res.status(500).json({ error: err.message });
+        logger.error({ err }, '[send] Error');
+        res.status(500).json({ error: err.message || 'Failed to send message' });
     }
 });
 
@@ -160,34 +224,19 @@ app.post('/send-group', async (req, res) => {
     if (!assertReady(res)) return;
 
     try {
-        const sent = await client.sendMessage(groupId, message);
-        res.json({ success: true, messageId: sent.id._serialized });
+        const result = await sock.sendMessage(groupId, { text: String(message) });
+        res.json({ success: true, messageId: result?.key?.id });
     } catch (err) {
-        console.error('[send-group] Error:', err.message);
-        res.status(500).json({ error: err.message });
+        logger.error({ err }, '[send-group] Error');
+        res.status(500).json({ error: err.message || 'Failed to send group message' });
     }
 });
 
-app.get('/chats', async (_req, res) => {
-    if (!assertReady(res)) return;
-
-    try {
-        const chats = await client.getChats();
-        const list = chats.map((c) => ({
-            id: c.id._serialized,
-            name: c.name,
-            isGroup: c.isGroup,
-            unreadCount: c.unreadCount,
-        }));
-        res.json(list);
-    } catch (err) {
-        console.error('[chats] Error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
+app.get('/chats', (_req, res) => {
+    // Kept for compatibility. Baileys does not expose chat list by default without a custom store.
+    res.json([]);
 });
-
-// ─── Start ───────────────────────────────────────────────────────────────────
 
 app.listen(PORT, HOST, () => {
-    console.log(`[WhatsApp Service] Listening on ${HOST}:${PORT}`);
+    logger.info(`[WhatsApp Service] Listening on ${HOST}:${PORT}`);
 });

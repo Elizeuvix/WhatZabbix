@@ -1,6 +1,6 @@
 services:
 
-  # ── Serviço WhatsApp interno (Node.js + whatsapp-web.js) ──────────────────
+  # ── Serviço WhatsApp interno (Node.js + Baileys) ──────────────────────────
   whatsapp:
     build:
       context: ./whatsapp
@@ -8,9 +8,11 @@ services:
     container_name: wa-service
     restart: unless-stopped
     volumes:
-      - wa_auth:/app/.wwebjs_auth       # Persiste a sessão WhatsApp
+      - wa_auth:/app/.wa_auth           # Persiste a sessão WhatsApp
     environment:
       WA_PORT: "3000"
+      WA_AUTH_PATH: "/app/.wa_auth"
+      # WA_PAIRING_NUMBER: "5511999999999"  # Opcional: gera código automaticamente no startup
     networks:
       - internal                         # Apenas rede interna — nunca exposto externamente
     healthcheck:
@@ -38,9 +40,6 @@ services:
       - .env
     environment:
       WHATSAPP_SERVICE_URL: "http://whatsapp:3000"
-    depends_on:
-      whatsapp:
-        condition: service_healthy
     networks:
       - internal
     healthcheck:

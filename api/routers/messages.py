@@ -4,7 +4,7 @@ import logging
 
 from api.auth import require_api_key
 from api.models.schemas import SendMessageRequest, SendGroupMessageRequest, MessageResponse
-from api.services.whatsapp_client import whatsapp_client
+from api.services.whatsapp_client import whatsapp_client, WhatsAppServiceError
 
 logger = logging.getLogger("api.messages")
 router = APIRouter(prefix="/messages", tags=["Mensagens"])
@@ -38,6 +38,11 @@ async def send_message(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Serviço WhatsApp indisponível",
         )
+    except WhatsAppServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
 
 
 @router.post(
@@ -59,4 +64,9 @@ async def send_group_message(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Serviço WhatsApp indisponível",
+        )
+    except WhatsAppServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
         )

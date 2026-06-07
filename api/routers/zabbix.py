@@ -5,7 +5,7 @@ from datetime import datetime
 
 from api.auth import require_api_key
 from api.models.schemas import ZabbixAlertRequest, MessageResponse
-from api.services.whatsapp_client import whatsapp_client
+from api.services.whatsapp_client import whatsapp_client, WhatsAppServiceError
 
 logger = logging.getLogger("api.zabbix")
 router = APIRouter(prefix="/zabbix", tags=["Zabbix"])
@@ -134,4 +134,10 @@ async def receive_zabbix_alert(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Serviço WhatsApp indisponível",
+        )
+    except WhatsAppServiceError as exc:
+        logger.error("WhatsApp provider error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
         )
