@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="bubbleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#25D366"/>
+      <stop offset="100%" style="stop-color:#128C7E"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#00000055"/>
+    </filter>
+  </defs>
+
+  <!-- Fundo arredondado -->
+  <rect width="128" height="128" rx="28" fill="url(#bgGrad)"/>
+
+  <!-- Balão de chat (WhatsApp style) -->
+  <path d="M64 18 C38 18 17 36 17 58 C17 68 21 77 29 84 L24 108 L50 98 C54 99 59 100 64 100 C90 100 111 82 111 58 C111 36 90 18 64 18 Z"
+        fill="url(#bubbleGrad)" filter="url(#shadow)"/>
+
+  <!-- Sinal de alerta Zabbix (triângulo com !) -->
+  <polygon points="64,34 82,66 46,66" fill="#FF4444" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="61" y="44" width="6" height="12" rx="2" fill="#fff"/>
+  <rect x="61" y="59" width="6" height="5" rx="2" fill="#fff"/>
+
+  <!-- Linha de pulse/monitoramento embaixo -->
+  <polyline points="30,82 38,82 42,74 48,88 54,78 60,82 68,82 72,70 78,88 84,82 98,82"
+            fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+</svg>

@@ -6,6 +6,7 @@ from datetime import datetime
 from api.auth import require_api_key
 from api.models.schemas import ZabbixAlertRequest, MessageResponse
 from api.services.whatsapp_client import whatsapp_client, WhatsAppServiceError
+from api.websocket_manager import ws_manager
 
 logger = logging.getLogger("api.zabbix")
 router = APIRouter(prefix="/zabbix", tags=["Zabbix"])
@@ -119,6 +120,24 @@ async def receive_zabbix_alert(
             alert.event_id,
             alert.status,
         )
+
+        # Broadcast para clientes WebSocket (app Flutter)
+        await ws_manager.broadcast({
+            "id": alert.event_id or datetime.now().isoformat(),
+            "subject": alert.subject,
+            "body": alert.body,
+            "host": alert.host,
+            "severity": alert.severity,
+            "event_nseverity": alert.event_nseverity,
+            "status": alert.status,
+            "event_value": alert.event_value,
+            "trigger_name": alert.trigger_name,
+            "event_date": alert.event_date,
+            "event_time": alert.event_time,
+            "to": alert.to,
+            "received_at": datetime.now().isoformat(),
+        })
+
         return MessageResponse(success=True, message_id=result.get("messageId"))
 
     except httpx.HTTPStatusError as exc:

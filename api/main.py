@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
@@ -7,6 +7,7 @@ import time
 
 from api.config import settings
 from api.routers import messages, session, zabbix
+from api.websocket_manager import ws_manager
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 
@@ -79,6 +80,24 @@ app.include_router(zabbix.router, prefix="/api/v1")
 @app.get("/health", tags=["Health"], summary="API health check")
 async def health():
     return {"status": "ok", "version": "1.0.0"}
+
+
+# ─── WebSocket ───────────────────────────────────────────────────────────────
+
+@app.websocket("/ws/alerts")
+async def websocket_alerts(ws: WebSocket):
+    """WebSocket para receber alertas Zabbix em tempo real."""
+    await ws_manager.connect(ws)
+    try:
+        while True:
+            await ws.receive_text()  # mantém conexão viva
+    except WebSocketDisconnect:
+        ws_manager.disconnect(ws)
+
+
+@app.get("/api/v1/alerts/history", tags=["Alertas"], summary="Histórico de alertas")
+async def alert_history():
+    return {"alerts": ws_manager.get_history()}
 
 
 # ─── Global error handler ────────────────────────────────────────────────────
